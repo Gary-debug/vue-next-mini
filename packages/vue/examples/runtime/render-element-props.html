@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <script src="../../dist/vue.js"></script>
+  <style>
+    .active {
+      color: #87f887
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app"></div>
+</body>
+
+<script>
+  const { h, render } = Vue;
+  const vnode = h('textarea', {
+    class: 'test-class', // el.className
+    value: 'textarea value', // el.value
+    type: 'text' // el.setAttribute
+  });
+  
+  render(vnode, document.querySelector('#app'));
+
+</script>
+
+</html>
