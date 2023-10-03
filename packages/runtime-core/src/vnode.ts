@@ -34,10 +34,10 @@ export function createVNode(type, props, chilren): VNode {
     }
   }
 
-
-
   return createBaseVNode(type, props, chilren, shapeFlag);
 }
+
+export { createVNode as createElementVNode }
 
 function createBaseVNode(type, props, children, shapeFlag) {
   const vnode = {
