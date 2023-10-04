@@ -521,6 +521,9 @@ var Vue = (function (exports) {
     function isSameVNodeType(n1, n2) {
         return n1.type === n2.type && n1.key === n2.key;
     }
+    function createCommentVNode(text) {
+        return createVNode(Comment, null, text);
+    }
 
     function h(type, propsOrChildren, children) {
         // 获取参数长度
@@ -548,11 +551,11 @@ var Vue = (function (exports) {
     }
 
     function renderComponentRoot(instance) {
-        var vnode = instance.vnode, render = instance.render, data = instance.data;
+        var vnode = instance.vnode, render = instance.render, _a = instance.data, data = _a === void 0 ? {} : _a;
         var result;
         try {
             if (vnode.shapeFlag & 4 /* ShapeFlags.STATEFUL_COMPONENT */) {
-                result = normalizeVNode(render.call(data));
+                result = normalizeVNode(render.call(data, data));
             }
         }
         catch (error) {
@@ -1284,7 +1287,9 @@ var Vue = (function (exports) {
         while (!isEnd(context, ancestors)) {
             var s = context.source;
             var node = void 0;
-            if (startsWith(s, '{{')) ;
+            if (startsWith(s, '{{')) {
+                node = parseInterpolation(context);
+            }
             else if (s[0] === '<') {
                 if (/[a-z]/i.test(s[1])) {
                     node = parseElement(context, ancestors);
@@ -1297,14 +1302,31 @@ var Vue = (function (exports) {
         }
         return nodes;
     }
+    function parseInterpolation(context) {
+        // {{ xx }}
+        var _a = __read(['{{', '}}'], 2), open = _a[0], close = _a[1];
+        advanceBy(context, open.length);
+        var closeIndex = context.source.indexOf(close, open.length);
+        var preTrimContent = parseTextData(context, closeIndex);
+        var content = preTrimContent.trim();
+        advanceBy(context, close.length);
+        return {
+            type: 5 /* NodeTypes.INTERPOLATION */,
+            content: {
+                type: 4 /* NodeTypes.SIMPLE_EXPRESSION */,
+                isStatic: false,
+                content: content
+            }
+        };
+    }
     function parseElement(context, ancestors) {
-        var element = parseTag(context);
+        var element = parseTag(context, 0 /* TagType.Start */);
         ancestors.push(element);
         var chilren = parseChildren(context, ancestors);
         ancestors.pop();
         element.children = chilren;
         if (startsWithEndTagOpen(context.source, element.tag)) {
-            parseTag(context);
+            parseTag(context, 1 /* TagType.End */);
         }
         return element;
     }
@@ -1312,6 +1334,9 @@ var Vue = (function (exports) {
         var match = /^<\/?([a-z][^\t\r\n\f />]*)/i.exec(context.source);
         var tag = match[1];
         advanceBy(context, match[0].length);
+        // 属性和指令的处理
+        advanceSpaces(context);
+        var props = parseAttributes(context, type);
         var isSelfClosing = startsWith(context.source, '/>');
         advanceBy(context, isSelfClosing ? 2 : 1);
         return {
@@ -1319,7 +1344,87 @@ var Vue = (function (exports) {
             tag: tag,
             tagType: 0 /* ElementTypes.ELEMENT */,
             children: [],
-            props: []
+            props: props
+        };
+    }
+    function advanceSpaces(context) {
+        var match = /^[\t\r\n\f ]+/.exec(context.source);
+        if (match) {
+            advanceBy(context, match[0].length);
+        }
+    }
+    function parseAttributes(context, type) {
+        var props = [];
+        var attributeNames = new Set();
+        while (context.source.length > 0 &&
+            !startsWith(context.source, '>') &&
+            !startsWith(context.source, '/>')) {
+            var attr = parseAttribute(context, attributeNames);
+            if (type === 0 /* TagType.Start */) {
+                props.push(attr);
+            }
+            advanceSpaces(context);
+        }
+        return props;
+    }
+    function parseAttribute(context, nameSet) {
+        var match = /^[^\t\r\n\f />][^\t\r\n\f />=]*/.exec(context.source);
+        var name = match[0];
+        nameSet.add(name);
+        advanceBy(context, name.length);
+        var value = undefined;
+        if (/^[\t\r\n\f ]*=/.test(context.source)) {
+            advanceSpaces(context);
+            advanceBy(context, 1);
+            advanceSpaces(context);
+            value = parseAttributeValue(context);
+        }
+        // v- 指令
+        if (/^(v-[A-Za-z0-9-]|:|\.|@|#)/.test(name)) {
+            // 获取指令名称
+            var match_1 = /(?:^v-([a-z0-9-]+))?(?:(?::|^\.|^@|^#)(\[[^\]]+\]|[^\.]+))?(.+)?$/i.exec(name);
+            var dirName = match_1[1];
+            return {
+                type: 7 /* NodeTypes.DIRECTIVE */,
+                name: dirName,
+                exp: value && {
+                    type: 4 /* NodeTypes.SIMPLE_EXPRESSION */,
+                    content: value.content,
+                    isStatic: false,
+                    loc: {}
+                },
+                art: undefined,
+                modifiers: undefined,
+                loc: {}
+            };
+        }
+        return {
+            type: 6 /* NodeTypes.ATTRIBUTE */,
+            name: name,
+            value: value && {
+                type: 2 /* NodeTypes.TEXT */,
+                content: value.content,
+                loc: {}
+            },
+            loc: {}
+        };
+    }
+    function parseAttributeValue(context) {
+        var content = '';
+        var quote = context.source[0];
+        advanceBy(context, 1);
+        var endIndex = context.source.indexOf(quote);
+        if (endIndex === -1) {
+            content = parseTextData(context, context.source.length);
+        }
+        else {
+            content = parseTextData(context, endIndex);
+            advanceBy(context, 1);
+        }
+        return {
+            content: content,
+            isQuoted: true,
+            loc: {}
         };
     }
     function pushNode(nodes, node) {
@@ -1372,6 +1477,18 @@ var Vue = (function (exports) {
         return children.length === 1 && child.type === 1 /* NodeTypes.ELEMENT */;
     }
 
+    var _a;
+    var CREATE_ELEMENT_VNODE = Symbol('createElementVNode');
+    var CREATE_VNODE = Symbol('createVnode');
+    var TO_DISPLAY_STRING = Symbol('toDisplayString');
+    var CREATE_COMMENT = Symbol('createCommentVNode');
+    var helperNameMap = (_a = {},
+        _a[CREATE_ELEMENT_VNODE] = 'createElementVNode',
+        _a[CREATE_VNODE] = 'createVnode',
+        _a[TO_DISPLAY_STRING] = 'toDisplayString',
+        _a[CREATE_COMMENT] = 'createCommentVNode',
+        _a);
+
     function createTransformContext(root, _a) {
         var _b = _a.nodeTransforms, nodeTransforms = _b === void 0 ? [] : _b;
         var context = {
@@ -1385,6 +1502,9 @@ var Vue = (function (exports) {
                 var count = context.helpers.get(name) || 0;
                 context.helpers.set(name, count + 1);
                 return name;
+            },
+            replaceNode: function (node) {
+                context.parent.children[context.childIndex] = context.currentNode = node;
             }
         };
         return context;
@@ -1407,13 +1527,33 @@ var Vue = (function (exports) {
         for (var i_1 = 0; i_1 < nodeTransforms.length; i_1++) {
             var onExit = nodeTransforms[i_1](node, context);
             if (onExit) {
-                exitFns.push(onExit);
+                if (isArray(onExit)) {
+                    exitFns.push.apply(exitFns, __spreadArray([], __read(onExit), false));
+                }
+                else {
+                    exitFns.push(onExit);
+                }
+            }
+            if (!context.currentNode) {
+                return;
+            }
+            else {
+                node = context.currentNode;
             }
         }
         switch (node.type) {
+            case 10 /* NodeTypes.IF_BRANCH */:
             case 1 /* NodeTypes.ELEMENT */:
             case 0 /* NodeTypes.ROOT */:
                 traverseChildren(node, context);
+                break;
+            case 5 /* NodeTypes.INTERPOLATION */:
+                context.helper(TO_DISPLAY_STRING);
+                break;
+            case 9 /* NodeTypes.IF */:
+                for (var i_2 = 0; i_2 < node.branches.length; i_2++) {
+                    traverseNode(node.branches[i_2], context);
+                }
                 break;
         }
         context.currentNode = node;
@@ -1440,14 +1580,26 @@ var Vue = (function (exports) {
             }
         }
     }
-
-    var _a;
-    var CREATE_ELEMENT_VNODE = Symbol('createElementVNode');
-    var CREATE_VNODE = Symbol('createVnode');
-    var helperNameMap = (_a = {},
-        _a[CREATE_ELEMENT_VNODE] = 'createElementVNode',
-        _a[CREATE_VNODE] = 'createVnode',
-        _a);
+    function createStructuralDirectiveTransform(name, fn) {
+        var matches = isString(name) ? function (n) { return n === name; } : function (n) { return name.test(n); };
+        return function (node, context) {
+            if (node.type === 1 /* NodeTypes.ELEMENT */) {
+                var props = node.props;
+                var exitFns = [];
+                for (var i = 0; i < props.length; i++) {
+                    var prop = props[i];
+                    if (prop.type === 7 /* NodeTypes.DIRECTIVE */ && matches(prop.name)) {
+                        props.splice(i, 1);
+                        i--;
+                        var onExit = fn(node, prop, context);
+                        if (onExit)
+                            exitFns.push(onExit);
+                    }
+                }
+                return exitFns;
+            }
+        };
+    }
 
     function createVNodeCall(context, tag, props, children) {
         if (context) {
@@ -1458,6 +1610,41 @@ var Vue = (function (exports) {
             tag: tag,
             props: props,
             children: children
+        };
+    }
+    function createConditionalExpression(test, consequent, alternate, newline) {
+        if (newline === void 0) { newline = true; }
+        return {
+            type: 19 /* NodeTypes.JS_CONDITIONAL_EXPRESSION */,
+            test: test,
+            consequent: consequent,
+            alternate: alternate,
+            newline: newline,
+            loc: {}
+        };
+    }
+    function createSimpleExpression(content, isStatic) {
+        return {
+            type: 4 /* NodeTypes.SIMPLE_EXPRESSION */,
+            loc: {},
+            content: content,
+            isStatic: isStatic
+        };
+    }
+    function createObjectProperty(key, value) {
+        return {
+            type: 16 /* NodeTypes.JS_PROPERTY */,
+            loc: {},
+            key: isString(key) ? createSimpleExpression(key, true) : key,
+            value: value
+        };
+    }
+    function createCallExpression(callee, args) {
+        return {
+            type: 14 /* NodeTypes.JS_CALL_EXPRESSION */,
+            loc: {},
+            callee: callee,
+            arguments: args
         };
     }
 
@@ -1480,6 +1667,9 @@ var Vue = (function (exports) {
     }
     function getVNodeHelper(ssr, isComponent) {
         return ssr || isComponent ? CREATE_VNODE : CREATE_ELEMENT_VNODE;
+    }
+    function getMemoedVNodeCall(node) {
+        return node;
     }
 
     // 将相邻的文本节点和表达式合并成一个表达式
@@ -1533,15 +1723,19 @@ var Vue = (function (exports) {
             helper: function (key) {
                 return "_".concat(helperNameMap[key]);
             },
+            // 插入代码
             push: function (code) {
                 context.code += code;
             },
+            // 新的一行
             newline: function () {
                 newline(context.indentLevel);
             },
+            // 控制缩进 + 换行
             indent: function () {
                 newline(++context.indentLevel);
             },
+            // 控制缩进 + 换行
             deindent: function () {
                 newline(--context.indentLevel);
             }
@@ -1560,6 +1754,8 @@ var Vue = (function (exports) {
         var signature = args.join(', ');
         push("function ".concat(functionName, "(").concat(signature, ") {"));
         indent();
+        push("with (_ctx) {");
+        indent();
         var hasHelpers = ast.helpers.length > 0;
         if (hasHelpers) {
             push("const { ".concat(ast.helpers.map(aliasHelper).join(', '), " } = _Vue"));
@@ -1576,6 +1772,8 @@ var Vue = (function (exports) {
         }
         deindent();
         push('}');
+        deindent();
+        push('}');
         return {
             ast: ast,
             code: context.code
@@ -1590,22 +1788,106 @@ var Vue = (function (exports) {
     }
     function genNode(node, context) {
         switch (node.type) {
+            case 1 /* NodeTypes.ELEMENT */:
+            case 9 /* NodeTypes.IF */:
+                genNode(node.codegenNode, context);
+                break;
             case 13 /* NodeTypes.VNODE_CALL */:
                 genVNodeCall(node, context);
                 break;
             case 2 /* NodeTypes.TEXT */:
                 genText(node, context);
                 break;
+            // 复合表达式处理
+            case 4 /* NodeTypes.SIMPLE_EXPRESSION */:
+                genExpression(node, context);
+                break;
+            // 表达式处理
+            case 5 /* NodeTypes.INTERPOLATION */:
+                genInterpolation(node, context);
+                break;
+            // {{}} 处理
+            case 8 /* NodeTypes.COMPOUND_EXPRESSION */:
+                genCompoundExpression(node, context);
+                break;
+            // JS调用表达式的处理
+            case 14 /* NodeTypes.JS_CALL_EXPRESSION */:
+                genCallExpression(node, context);
+                break;
+            // JS条件表达式的处理
+            case 19 /* NodeTypes.JS_CONDITIONAL_EXPRESSION */:
+                genConditionalExpression(node, context);
+                break;
         }
     }
+    function genCallExpression(node, context) {
+        var push = context.push, helper = context.helper;
+        var callee = isString(node.callee) ? node.callee : helper(node.callee);
+        push(callee + "(", node);
+        genNodeList(node.arguments, context);
+        push(")");
+    }
+    /**
+     * JS条件表达式的处理。
+     * 例如：
+     *  isShow
+            ? _createElementVNode("h1", null, ["你好，世界"])
+            : _createCommentVNode("v-if", true),
+     */
+    function genConditionalExpression(node, context) {
+        var test = node.test, alternate = node.alternate, consequent = node.consequent, needNewLine = node.newline;
+        var push = context.push, indent = context.indent, deindent = context.deindent, newline = context.newline;
+        if (test.type === 4 /* NodeTypes.SIMPLE_EXPRESSION */) {
+            genExpression(test, context);
+        }
+        needNewLine && indent();
+        context.indentLevel++;
+        needNewLine || push(" ");
+        push("? ");
+        genNode(consequent, context);
+        context.indentLevel--;
+        needNewLine && newline();
+        needNewLine || push(" ");
+        push(": ");
+        var isNested = alternate.type === 19 /* NodeTypes.JS_CONDITIONAL_EXPRESSION */;
+        if (!isNested) {
+            context.indentLevel++;
+        }
+        genNode(alternate, context);
+        if (!isNested) {
+            context.indentLevel--;
+        }
+        needNewLine && deindent();
+    }
+    function genCompoundExpression(node, context) {
+        for (var i = 0; i < node.children.length; i++) {
+            var child = node.children[i];
+            if (isString(child)) {
+                context.push(child);
+            }
+            else {
+                genNode(child, context);
+            }
+        }
+    }
+    function genExpression(node, context) {
+        var content = node.content, isStatic = node.isStatic;
+        context.push(isStatic ? JSON.stringify(content) : content, node);
+    }
+    function genInterpolation(node, context) {
+        var push = context.push, helper = context.helper;
+        push("".concat(helper(TO_DISPLAY_STRING), "("));
+        genNode(node.content, context);
+        push(')');
+    }
     function genText(node, context) {
-        context.push(JSON.stringify(node.content));
+        context.push(JSON.stringify(node.content), node);
     }
     function genVNodeCall(node, context) {
         var push = context.push, helper = context.helper;
         var tag = node.tag, props = node.props, children = node.children, patchFlag = node.patchFlag, dynamicProps = node.dynamicProps; node.directives; node.isBlock; node.disableTracking; var isComponent = node.isComponent;
         var callHelper = getVNodeHelper(context.isSSR, isComponent);
-        push(helper(callHelper) + "(");
+        push(helper(callHelper) + "(", node);
         var args = genNullableArgs([tag, props, children, patchFlag, dynamicProps]);
         genNodeList(args, context);
         push(')');
@@ -1642,12 +1924,81 @@ var Vue = (function (exports) {
         context.push(']');
     }
 
+    var transformIf = createStructuralDirectiveTransform(/^(if|else|else-if)$/, function (node, dir, context) {
+        return processIf(node, dir, context, function (ifNode, branch, isRoot) {
+            var key = 0;
+            return function () {
+                if (isRoot) {
+                    ifNode.codegenNode = createCodegenNodeForBranch(branch, key, context);
+                }
+            };
+        });
+    });
+    function processIf(node, dir, context, processCodegen) {
+        if (dir.name === 'if') {
+            var branch = createIfBranch(node, dir);
+            var ifNode = {
+                type: 9 /* NodeTypes.IF */,
+                loc: node.loc,
+                branches: [branch]
+            };
+            context.replaceNode(ifNode);
+            if (processCodegen) {
+                return processCodegen(ifNode, branch, true);
+            }
+        }
+    }
+    function createIfBranch(node, dir) {
+        return {
+            type: 10 /* NodeTypes.IF_BRANCH */,
+            loc: node.loc,
+            condition: dir.exp,
+            children: [node]
+        };
+    }
+    function createCodegenNodeForBranch(branch, keyIndex, context) {
+        if (branch.condition) {
+            return createConditionalExpression(branch.condition, createChildrenCodegenNode(branch, keyIndex), createCallExpression(context.helper(CREATE_COMMENT), ['"v-if"', 'true']));
+        }
+        else {
+            return createChildrenCodegenNode(branch, keyIndex);
+        }
+    }
+    // 创建指定子节点的 codegen
+    function createChildrenCodegenNode(branch, keyIndex) {
+        var keyProperty = createObjectProperty("key", createSimpleExpression("".concat(keyIndex), false));
+        var children = branch.children;
+        var firstChild = children[0];
+        var ret = firstChild.codegenNode;
+        var vnodeCall = getMemoedVNodeCall(ret);
+        injectProp(vnodeCall, keyProperty);
+        return ret;
+    }
+    function injectProp(node, prop) {
+        var propsWithInjection;
+        var props = node.type === 13 /* NodeTypes.VNODE_CALL */ ? node.props : node.arguments[2];
+        if (props === null || isString(props)) {
+            propsWithInjection = createObjectExpression([prop]);
+        }
+        if (node.type === 13 /* NodeTypes.VNODE_CALL */) {
+            node.props = propsWithInjection;
+        }
+    }
+    function createObjectExpression(properties) {
+        return {
+            type: 15 /* NodeTypes.JS_OBJECT_EXPRESSION */,
+            loc: {},
+            properties: properties
+        };
+    }
+
     function baseCompile(template, options) {
         if (options === void 0) { options = {}; }
         var ast = baseParse(template);
         transform(ast, extend(options, {
-            nodeTransforms: [transformElement, transformText]
+            nodeTransforms: [transformElement, transformText, transformIf]
         }));
+        console.log(ast);
         return generate(ast);
     }
 
@@ -1661,11 +2012,16 @@ var Vue = (function (exports) {
         return render;
     }
 
+    var toDisplayString = function (val) {
+        return String(val);
+    };
+
     exports.Comment = Comment;
     exports.Fragment = Fragment;
     exports.Text = Text;
     exports.compile = compileToFunction;
     exports.computed = computed;
+    exports.createCommentVNode = createCommentVNode;
     exports.createElementVNode = createVNode;
     exports.effect = effect;
     exports.h = h;
@@ -1673,6 +2029,7 @@ var Vue = (function (exports) {
     exports.reactive = reactive;
     exports.ref = ref;
     exports.render = render;
+    exports.toDisplayString = toDisplayString;
     exports.watch = watch;
 
     Object.defineProperty(exports, '__esModule', { value: true });

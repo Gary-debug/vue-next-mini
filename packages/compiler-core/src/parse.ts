@@ -27,7 +27,7 @@ export function baseParse(content: string) {
   const context = createParserContext(content);
 
   const children = parseChildren(context, []);
-    
+
   return createRoot(children);
 }
 
@@ -40,7 +40,7 @@ function parseChildren(context: ParserContext, ancestors) {
     let node;
 
     if(startsWith(s, '{{')) {
-      // TODO: {{}}
+      node = parseInterpolation(context);
     } else if(s[0] === '<') {
       if(/[a-z]/i.test(s[1])) {
         node = parseElement(context, ancestors);
@@ -55,6 +55,27 @@ function parseChildren(context: ParserContext, ancestors) {
   }
 
   return nodes;
+}
+
+function parseInterpolation(context: ParserContext) {
+  // {{ xx }}
+  const [open, close] = ['{{', '}}'];
+
+  advanceBy(context, open.length);
+
+  const closeIndex = context.source.indexOf(close, open.length);
+  const preTrimContent = parseTextData(context, closeIndex);
+  const content = preTrimContent.trim();
+
+  advanceBy(context, close.length);
+  return {
+    type: NodeTypes.INTERPOLATION,
+    content: {
+      type: NodeTypes.SIMPLE_EXPRESSION,
+      isStatic: false,
+      content
+    }
+  }
 }
 
 function parseElement(context: ParserContext, ancestors) {
@@ -79,6 +100,10 @@ function parseTag(context: ParserContext, type: TagType) {
 
   advanceBy(context, match[0].length);
 
+  // 属性和指令的处理
+  advanceSpaces(context)
+  let props = parseAttributes(context, type);
+
   let isSelfClosing = startsWith(context.source, '/>');
   advanceBy(context, isSelfClosing ? 2 : 1);
 
@@ -88,7 +113,108 @@ function parseTag(context: ParserContext, type: TagType) {
     tag,
     tagType: ElementTypes.ELEMENT,
     children: [],
-    props: []
+    props
+  }
+}
+
+function advanceSpaces(context: ParserContext): void {
+  const match = /^[\t\r\n\f ]+/.exec(context.source);
+  if(match) {
+    advanceBy(context, match[0].length);
+  }
+}
+
+function parseAttributes(context, type) {
+  const props: any = [];
+  const attributeNames = new Set<string>();
+
+  while(
+    context.source.length > 0 && 
+    !startsWith(context.source, '>') &&
+    !startsWith(context.source, '/>')
+  ) {
+    const attr = parseAttribute(context, attributeNames);
+    if(type === TagType.Start) {
+      props.push(attr);
+    }
+    advanceSpaces(context);
+  }
+
+  return props;
+}
+
+function parseAttribute(context: ParserContext, nameSet: Set<string>) {
+  const match = /^[^\t\r\n\f />][^\t\r\n\f />=]*/.exec(context.source)!
+  const name = match[0];
+
+  nameSet.add(name);
+
+  advanceBy(context, name.length);
+
+  let value: any = undefined;
+
+  if(/^[\t\r\n\f ]*=/.test(context.source)) {
+    advanceSpaces(context);
+    advanceBy(context, 1);
+    advanceSpaces(context);
+    value = parseAttributeValue(context);
+  }
+
+  // v- 指令
+  if(/^(v-[A-Za-z0-9-]|:|\.|@|#)/.test(name)) {
+    // 获取指令名称
+		const match =
+    /(?:^v-([a-z0-9-]+))?(?:(?::|^\.|^@|^#)(\[[^\]]+\]|[^\.]+))?(.+)?$/i.exec(
+      name
+    )!
+
+    let dirName = match[1];
+
+    return {
+      type: NodeTypes.DIRECTIVE,
+      name: dirName,
+      exp: value && {
+        type: NodeTypes.SIMPLE_EXPRESSION,
+        content: value.content,
+        isStatic: false,
+        loc: {}
+      },
+      art: undefined,
+      modifiers: undefined,
+      loc: {}
+    }
+  }
+
+  return {
+    type: NodeTypes.ATTRIBUTE,
+    name,
+    value: value && {
+      type: NodeTypes.TEXT,
+      content: value.content,
+      loc: {}
+    },
+    loc: {}
+  }
+}
+
+function parseAttributeValue(context: ParserContext) {
+  let content = '';
+
+  const quote = context.source[0];
+  advanceBy(context, 1);
+  const endIndex = context.source.indexOf(quote);
+  if(endIndex === -1) {
+    content = parseTextData(context, context.source.length);
+  } else {
+    content = parseTextData(context, endIndex);
+    advanceBy(context, 1);
+
+  }
+
+  return {
+    content,
+    isQuoted: true,
+    loc: {}
   }
 }
 
