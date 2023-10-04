@@ -588,6 +588,7 @@ var Vue = (function (exports) {
     var onMounted = createHook("m" /* LifecycleHooks.MOUNTED */);
 
     var uid = 0;
+    var compile$1 = null;
     function createComponentInstance(vnode) {
         var type = vnode.type;
         var instance = {
@@ -629,9 +630,18 @@ var Vue = (function (exports) {
     function finishComponentSetup(instance) {
         var Component = instance.type;
         if (!instance.render) {
+            if (compile$1 && !Component.render) {
+                if (Component.template) {
+                    var template = Component.template;
+                    Component.render = compile$1(template);
+                }
+            }
             instance.render = Component.render;
         }
         applyOptions(instance);
+    }
+    function registerRuntimeCompiler(_compile) {
+        compile$1 = _compile;
     }
     function applyOptions(instance) {
         var _a = instance.type, dataOptions = _a.data, beforeCreate = _a.beforeCreate, created = _a.created, beforeMount = _a.beforeMount, mounted = _a.mounted;
@@ -655,6 +665,21 @@ var Vue = (function (exports) {
     }
     function callHook(hook, proxy) {
         hook.bind(proxy)();
+    }
+
+    function createAppAPI(render) {
+        return function createapp(rootComponent, rootProps) {
+            if (rootProps === void 0) { rootProps = null; }
+            var app = {
+                _component: rootComponent,
+                _container: null,
+                mount: function (rootContainer) {
+                    var vnode = createVNode(rootComponent, rootProps, null);
+                    render(vnode, rootContainer);
+                }
+            };
+            return app;
+        };
     }
 
     function createRenderer(options) {
@@ -1065,7 +1090,8 @@ var Vue = (function (exports) {
             container._vnode = vnode;
         };
         return {
-            render: render
+            render: render,
+            createApp: createAppAPI(render)
         };
     }
     // 获取最长递增子序列下标
@@ -1264,6 +1290,31 @@ var Vue = (function (exports) {
         }
         (_a = ensureRenderer()).render.apply(_a, __spreadArray([], __read(args), false));
     };
+    var createApp = function () {
+        var _a;
+        var args = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+            args[_i] = arguments[_i];
+        }
+        var app = (_a = ensureRenderer()).createApp.apply(_a, __spreadArray([], __read(args), false));
+        var mount = app.mount;
+        app.mount = function (containerOrSelector) {
+            var container = normalizeContainer(containerOrSelector);
+            if (!container) {
+                console.error('容器必须存在');
+                return;
+            }
+            mount(container);
+        };
+        return app;
+    };
+    function normalizeContainer(container) {
+        if (isString(container)) {
+            var res = document.querySelector(container);
+            return res;
+        }
+        return container;
+    }
 
     function createParserContext(content) {
         return {
@@ -2011,6 +2062,7 @@ var Vue = (function (exports) {
         var render = new Function(code)();
         return render;
     }
+    registerRuntimeCompiler(compileToFunction);
 
     var toDisplayString = function (val) {
         return String(val);
@@ -2021,6 +2073,7 @@ var Vue = (function (exports) {
     exports.Text = Text;
     exports.compile = compileToFunction;
     exports.computed = computed;
+    exports.createApp = createApp;
     exports.createCommentVNode = createCommentVNode;
     exports.createElementVNode = createVNode;
     exports.effect = effect;

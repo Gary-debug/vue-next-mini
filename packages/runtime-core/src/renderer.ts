@@ -5,6 +5,7 @@ import { cloneIfMounted, normalizeVNode, renderComponentRoot } from "./component
 import { createComponentInstance, setupComponent } from "./component";
 import { ReactiverEffect } from "packages/reactivity/src/effect";
 import { queuePreFlushCb } from "./scheduler";
+import { createAppAPI } from "./apiCreateApp";
 
 export interface RendererOptions {
   // 为指定的 Element 的 props 打补丁
@@ -488,7 +489,8 @@ function baseCreateRenderer(options: RendererOptions): any {
   } 
 
   return {
-    render
+    render,
+    createApp: createAppAPI(render)
   }
 }
 
