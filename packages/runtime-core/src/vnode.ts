@@ -19,7 +19,7 @@ export function isVnode(value: any): value is VNode {
   return value ? value.__v_isVNode === true : false;
 }
 
-export function createVNode(type, props, chilren): VNode {
+export function createVNode(type, props, chilren?): VNode {
 
   const shapeFlag = isString(type)
     ? ShapeFlags.ELEMENT 
@@ -28,6 +28,7 @@ export function createVNode(type, props, chilren): VNode {
     : 0;
     
   if(props) {
+    // 处理 class
     let { class: klass, style} = props
     if(klass && !isString(klass)) {
       props.class = normalizeClass(klass);
@@ -61,23 +62,26 @@ export function normalizeChildren(vnode: VNode, children: unknown) {
   } else if(isArray(children)) {
     type = ShapeFlags.ARRAY_CHILDREN
   } else if(typeof children === 'object') {
-
+    // TODO：object
   } else if(isFunction(children)) {
-
+    // TODO：function
   } else {
+    // children 为 string
     children = String(children);
+    // 为 type 指定 Flags
     type = ShapeFlags.TEXT_CHILDREN;
 
   }
-
+  // 修改 vnode 的 children
   vnode.children = children;
+  // 按位或赋值
   vnode.shapeFlag |= type;
 }
 
 export function isSameVNodeType(n1: VNode, n2: VNode) {
   return n1.type === n2.type && n1.key === n2.key;
 }
-
+// 创建注释节点
 export function createCommentVNode(text) {
   return createVNode(Comment, null, text);
 }

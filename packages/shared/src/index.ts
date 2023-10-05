@@ -1,4 +1,4 @@
-import { toDisplayString } from "./toDisplayString";
+export * from './toDisplayString'
 
 export const isArray = Array.isArray;
 
@@ -27,4 +27,6 @@ export const EMPTY_OBJ: {readonly [key: string]: any} = {}
 export const isString = (val: unknown): val is string => typeof val === 'string';
 
 const onRe = /^on[^a-z]/;
+
+// 是否 on 开头
 export const isOn = (key: string) => onRe.test(key);

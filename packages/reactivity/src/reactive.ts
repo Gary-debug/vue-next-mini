@@ -1,6 +1,7 @@
 import { isObject } from "@vue/shared";
 import { mutableHandlers } from "./baseHandlers"
 
+// 响应性 Map 缓存对象，key：target，value：proxy
 export const reactiveMap = new WeakMap<object, any>();
 export const enum ReactiveFlags {
   IS_REACTIVE = '__v_isReactive'
@@ -28,6 +29,7 @@ function createReactiveObject(
   return proxy;
 }
 
+// 将指定数据变为 reactive 数据
 export const ToReactive = <T extends unknown>(value: T): T => {
   return isObject(value) ? reactive(value as object) : value;
 }

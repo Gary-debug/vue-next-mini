@@ -19,6 +19,7 @@ export interface ReactiverEffectOptions {
 }
 
 export function effect<T = any>(fn: () => T, options?: ReactiverEffectOptions) {
+  // 生成 ReactiveEffect 实例
   const _effect = new ReactiverEffect(fn);
 
   if(options) {
@@ -26,19 +27,28 @@ export function effect<T = any>(fn: () => T, options?: ReactiverEffectOptions) {
   }
 
   if(!options || !options.lazy) {
+    // 执行 run 函数
     _effect.run();
   }
 }
 
 export let activeEffect: ReactiverEffect | undefined;
 
+// 响应性触发依赖时的执行类
 export class ReactiverEffect<T = any> {
+  // 存在该属性，则表示当前的 effect 为计算属性的 effect
   computed?: ComputedRefImpl<T>
 
-  constructor(public fn: () => T, public scheduler: EffectScheduler | null = null) {}
+  constructor(
+    public fn: () => T,
+    public scheduler: EffectScheduler | null = null
+  ) {}
 
   run () {
+    // 为 activeEffect 赋值
     activeEffect = this;
+
+    // 执行 fn 函数
     return this.fn();
   }
   stop () {
@@ -101,6 +111,7 @@ export function trigger(target: object, key: unknown, newValue: unknown) {
  * @param dep 
  */
 export function triggerEffects(dep: Dep) {
+  // 把 dep 构建为一个数组
   const effects = isArray(dep) ? dep : [...dep];
 
   // 先执行计算属性effects
@@ -110,6 +121,7 @@ export function triggerEffects(dep: Dep) {
     }
   }
 
+  // 再触发所有非计算属性依赖
   for(const effect of effects) {
     if(!effect.computed) {
       triggerEffect(effect);

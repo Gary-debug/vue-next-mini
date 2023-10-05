@@ -4,6 +4,9 @@ import { TransformContext, createStructuralDirectiveTransform } from "../transfo
 import { getMemoedVNodeCall } from "../utils";
 import { CREATE_COMMENT } from "../runtimeHelpers";
 
+/**
+ * transformIf === exitFns。内部保存了所有 v-if、v-else、else-if 的处理函数
+ */
 export const transformIf = createStructuralDirectiveTransform(
   /^(if|else|else-if)$/,
   (node, dir, context) => {
@@ -13,35 +16,44 @@ export const transformIf = createStructuralDirectiveTransform(
       return () => {
         if(isRoot) {
           ifNode.codegenNode = createCodegenNodeForBranch(branch, key, context);
-        }
+        } else {}
       }
     })
   }
 )
 
+/**
+ * v-if 的转化处理
+ */
 export function processIf(
   node, 
   dir, 
   context: TransformContext, 
   processCodegen?: (node, branch, isRoot: boolean) => (() => void) | undefined
-  ) {
+) {
+  // 仅处理 v-if
   if(dir.name === 'if') {
+    // 创建 branch 属性
     const branch = createIfBranch(node, dir);
 
+    // 生成 if 指令节点，包含 branches
     const ifNode = {
       type: NodeTypes.IF,
       loc: node.loc,
       branches: [branch]
     }
 
+    // 切换 currentVNode，即：当前处理节点为 ifNode
     context.replaceNode(ifNode);
 
+    // 生成对应的 codegen 属性
     if(processCodegen) {
       return processCodegen(ifNode, branch, true);
     }
   }
 }
 
+// 创建 if 指令的 branch 属性节点
 function createIfBranch(node, dir) {
   return {
     type: NodeTypes.IF_BRANCH,
@@ -51,6 +63,7 @@ function createIfBranch(node, dir) {
   }
 }
 
+// 生成分支节点的 codegenNode
 function createCodegenNodeForBranch(
   branch, 
   keyIndex: number,
@@ -60,6 +73,7 @@ function createCodegenNodeForBranch(
     return createConditionalExpression(
       branch.condition,
       createChildrenCodegenNode(branch, keyIndex),
+      // 以注释的形式展示 v-if
       createCallExpression(context.helper(CREATE_COMMENT), ['"v-if"', 'true'])
     )
   } else {
@@ -83,6 +97,7 @@ function createChildrenCodegenNode(branch, keyIndex: number) {
   return ret;
 }
 
+// 填充 props
 export function injectProp(node, prop) {
   let propsWithInjection;
 
@@ -96,6 +111,7 @@ export function injectProp(node, prop) {
   }
 }
 
+// 创建对象表达式节点
 export function createObjectExpression(properties) {
   return {
     type: NodeTypes.JS_OBJECT_EXPRESSION,

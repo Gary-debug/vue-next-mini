@@ -1,6 +1,7 @@
 import { isString } from "@vue/shared";
 import { CREATE_ELEMENT_VNODE } from "./runtimeHelpers";
 
+// 节点类型
 export const enum NodeTypes {
   ROOT,
   ELEMENT,
@@ -35,6 +36,7 @@ export const enum NodeTypes {
   JS_RETURN_STATEMENT
 }
 
+// Element 标签类型
 export const enum ElementTypes {
   ELEMENT,
   COMPONENT,
@@ -66,6 +68,7 @@ export function createCompoundExpression(children, loc) {
 	}
 }
 
+// 创建条件表达式的节点
 export function createConditionalExpression(test, consequent, alternate, newline = true) {
   return {
     type: NodeTypes.JS_CONDITIONAL_EXPRESSION,
@@ -77,6 +80,7 @@ export function createConditionalExpression(test, consequent, alternate, newline
   }
 }
 
+// 创建简单的表达式节点
 export function createSimpleExpression(content, isStatic) {
   return {
     type: NodeTypes.SIMPLE_EXPRESSION,
@@ -86,6 +90,7 @@ export function createSimpleExpression(content, isStatic) {
   }
 }
 
+// 创建对象属性节点
 export function createObjectProperty(key, value) {
   return {
     type: NodeTypes.JS_PROPERTY,
@@ -95,6 +100,7 @@ export function createObjectProperty(key, value) {
   }
 }
 
+// 创建调用表达式的节点
 export function createCallExpression(callee, args) {
   return {
     type: NodeTypes.JS_CALL_EXPRESSION,

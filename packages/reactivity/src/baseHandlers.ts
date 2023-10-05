@@ -1,8 +1,9 @@
 import { track, trigger } from "./effect";
 
+// getter 回调方法
 const get = createGetter();
-const set = createSetter();
 
+// 创建 getter 回调方法
 function createGetter() {
   return function get(target: object, key: string | symbol, receiver: object){
     const res = Reflect.get(target, key, receiver);
@@ -12,6 +13,10 @@ function createGetter() {
   };
 }
 
+// setter 回调方法
+const set = createSetter();
+
+// 创建 setter 回调方法
 function createSetter() {
   return function set(
     target: object,

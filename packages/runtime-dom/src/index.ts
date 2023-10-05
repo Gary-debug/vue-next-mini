@@ -14,11 +14,14 @@ export const render = (...args) => {
   ensureRenderer().render(...args);
 }
 
+// 创建并生成 app 实例
 export const createApp = (...args) => {
   const app = ensureRenderer().createApp(...args);
   
+  // 获取到 mount 挂载方法
   const { mount } = app;
 
+  // 对该方法进行重构，标准化 container，再重新触发 mount 进行挂载
   app.mount = (containerOrSelector: Element | string) => {
     const container = normalizeContainer(containerOrSelector);
 
@@ -33,6 +36,7 @@ export const createApp = (...args) => {
   return app;
 }
 
+// 标准化 container 容器
 function normalizeContainer(container: Element | string) : Element | null {
   if(isString(container)) {
     const res = document.querySelector(container);
